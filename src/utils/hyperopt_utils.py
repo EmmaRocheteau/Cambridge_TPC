@@ -1,10 +1,45 @@
 from typing import Dict, Any
+from pathlib import Path
 import pandas as pd
+import yaml
 from ray import tune
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
 from ray.tune.search import ConcurrencyLimiter
+from ray.tune.integration.pytorch_lightning import TuneReportCallback
 import optuna
+import pytorch_lightning as pl
+from pytorch_lightning import Trainer
+import plotly.express as px
+import plotly.graph_objects as go
+
+
+def train_tune_model(tune_config: Dict[str, Any], config: Dict[str, Any], model_class, datamodule):
+    """Training function for ray tune"""
+    # Update config with tuned parameters
+    config["model"].update(tune_config["model"])
+    config["training"].update(tune_config["training"])
+
+    # Create model with updated config
+    model = model_class(config)
+
+    # Create trainer with tune callback
+    trainer = Trainer(
+        max_epochs=config["training"]["epochs"],
+        callbacks=[TuneReportCallback(
+            metrics={
+                "loss": "val_total_loss",
+                "los_msle": "val_los_prediction_msle",
+                "mortality_auroc": "val_mortality_auroc"
+            },
+            on="validation_end"
+        )],
+        logger=True,
+        enable_progress_bar=False  # Disable progress bar for cleaner tune output
+    )
+
+    # Train model
+    trainer.fit(model, datamodule=datamodule)
 
 
 def setup_hyperopt_dashboard(experiment_dir: str):
@@ -22,13 +57,12 @@ def setup_hyperopt_dashboard(experiment_dir: str):
 def create_search_algorithm(strategy: str = "optuna"):
     """Create search algorithm with smart initialization strategies"""
     if strategy == "optuna":
-        # Optuna provides better sampling strategies than basic random search
         search_alg = OptunaSearch(
             metric="val_total_loss",
             mode="min",
             sampler=optuna.samplers.TPESampler(
-                n_startup_trials=5,  # Number of random trials before optimization
-                multivariate=True,  # Consider parameter relationships
+                n_startup_trials=5,
+                multivariate=True,
                 seed=42
             )
         )
@@ -38,14 +72,12 @@ def create_search_algorithm(strategy: str = "optuna"):
             mode="min"
         )
 
-    # Limit concurrent trials to avoid resource exhaustion
     return ConcurrencyLimiter(search_alg, max_concurrent=4)
 
 
 def create_scheduler(strategy: str = "asha"):
     """Create scheduler for efficient trial termination"""
     if strategy == "asha":
-        # Asynchronous Successive Halving Algorithm
         return ASHAScheduler(
             time_attr='training_iteration',
             metric="val_total_loss",
@@ -56,7 +88,6 @@ def create_scheduler(strategy: str = "asha"):
             brackets=3
         )
     elif strategy == "pbt":
-        # Population Based Training
         return PopulationBasedTraining(
             time_attr="training_iteration",
             metric="val_total_loss",
@@ -69,19 +100,33 @@ def create_scheduler(strategy: str = "asha"):
         )
 
 
+def analyze_parameter_importance(df: pd.DataFrame) -> pd.DataFrame:
+    """Analyze parameter importance based on correlation with metrics"""
+    metric_cols = [col for col in df.columns if col.startswith('val_')]
+    param_cols = [col for col in df.columns if col.startswith(('model.', 'training.'))]
+
+    importance_scores = []
+    for param in param_cols:
+        importance = abs(df[metric_cols].corrwith(df[param])).mean()
+        importance_scores.append({'parameter': param, 'importance': importance})
+
+    return pd.DataFrame(importance_scores).sort_values('importance', ascending=False)
+
+
+def analyze_parameter_correlations(df: pd.DataFrame) -> pd.DataFrame:
+    """Analyze correlations between parameters"""
+    param_cols = [col for col in df.columns if col.startswith(('model.', 'training.'))]
+    return df[param_cols].corr()
+
+
 def analyze_results(analysis):
     """Analyze hyperparameter optimization results"""
-    # Convert results to DataFrame
     df = analysis.results_df
 
-    # Get best trial
     best_trial = analysis.best_trial
     best_config = analysis.best_config
 
-    # Calculate parameter importance
     importance_df = analyze_parameter_importance(df)
-
-    # Generate parameter correlation analysis
     correlation_df = analyze_parameter_correlations(df)
 
     return {
@@ -93,10 +138,14 @@ def analyze_results(analysis):
     }
 
 
-def train_with_hyperopt(config: Dict[str, Any], datamodule, exp_dir: str):
-    """Enhanced hyperparameter optimization with better visualization and analysis"""
+def train_with_hyperopt(config: Dict[str, Any], datamodule, model_class, exp_dir: str):
+    """Enhanced hyperparameter optimization with hardware awareness"""
 
-    # Setup search space with smart initialization
+    # Setup hardware resources
+    hardware_config = config.get("hardware", {})
+    num_gpus = 0.5 if hardware_config.get("accelerator") in ["gpu", "cuda"] else 0
+
+    # Setup search space
     search_space = {
         "model": {
             "num_layers": tune.randint(2, 5),
@@ -114,20 +163,24 @@ def train_with_hyperopt(config: Dict[str, Any], datamodule, exp_dir: str):
         }
     }
 
-    # Setup search algorithm and scheduler
-    search_alg = create_search_algorithm("optuna")
-    scheduler = create_scheduler("asha")
-
     # Run hyperparameter optimization
     analysis = tune.run(
-        train_tune_model,
+        tune.with_parameters(
+            train_tune_model,
+            config=config,
+            model_class=model_class,
+            datamodule=datamodule
+        ),
         config=search_space,
         num_samples=50,
-        search_alg=search_alg,
-        scheduler=scheduler,
+        search_alg=create_search_algorithm("optuna"),
+        scheduler=create_scheduler("asha"),
         local_dir=exp_dir,
         name="hyperopt",
-        resources_per_trial={"cpu": 4, "gpu": 0.5},  # Adjust based on your resources
+        resources_per_trial={
+            "cpu": 4,
+            "gpu": num_gpus
+        },
         checkpoint_freq=10,
         keep_checkpoints_num=2,
         checkpoint_score_attr="val_total_loss",
@@ -173,9 +226,6 @@ def save_hyperopt_results(results: Dict, exp_dir: str):
 
 def create_summary_plots(results: Dict, save_dir: Path):
     """Create summary visualizations of hyperparameter optimization"""
-    import plotly.express as px
-    import plotly.graph_objects as go
-
     # Parameter importance plot
     fig = px.bar(
         results["importance"],

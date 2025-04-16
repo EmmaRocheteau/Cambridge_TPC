@@ -4,6 +4,12 @@ data:
   val_file: "val.csv"
   test_file: "test.csv"
 
+hardware:
+  accelerator: "auto"  # Options: "cpu", "gpu", "auto"
+  devices: "auto"      # Number of devices to use or "auto"
+  strategy: "auto"     # Options: "ddp", "dp", null, "auto"
+  precision: 32        # Options: 16, 32
+
 model:
   type: "TPC"  # Model type to instantiate
   features: 64  # Number of features (F)

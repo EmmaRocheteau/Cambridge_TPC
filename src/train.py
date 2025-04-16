@@ -151,16 +151,61 @@ def setup_model(config: dict) -> HealthcarePredictionModule:
     )
 
 
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--config", type=str, default="experiments/base_config.yaml",
+                      help="Path to config file")
+    parser.add_argument("--experiment-name", type=str,
+                      help="Name for this experiment")
+    parser.add_argument("--hyperopt", action="store_true",
+                      help="Run hyperparameter optimization")
+    parser.add_argument("--checkpoint", type=str,
+                      help="Path to checkpoint to resume from")
+    # Hardware arguments
+    parser.add_argument("--accelerator", type=str,
+                      help="Override config accelerator (cpu, gpu, auto)")
+    parser.add_argument("--devices", type=str,
+                      help="Override config devices (number or auto)")
+    parser.add_argument("--strategy", type=str,
+                      help="Override config strategy (ddp, dp, auto)")
+    parser.add_argument("--precision", type=int, choices=[16, 32],
+                      help="Override config precision")
+
+
+def setup_trainer(config: dict, exp_dir: Path, cli_args: argparse.Namespace) -> Trainer:
+    """Setup trainer with hardware configuration"""
+    # Get hardware config with CLI overrides
+    hardware_config = config.get("hardware", {})
+    accelerator = cli_args.accelerator or hardware_config.get("accelerator", "auto")
+    devices = cli_args.devices or hardware_config.get("devices", "auto")
+    strategy = cli_args.strategy or hardware_config.get("strategy", "auto")
+    precision = cli_args.precision or hardware_config.get("precision", 32)
+
+    # Convert devices to int if numeric
+    if isinstance(devices, str) and devices.isdigit():
+        devices = int(devices)
+
+    trainer = Trainer(
+        accelerator=accelerator,
+        devices=devices,
+        strategy=strategy,
+        precision=precision,
+        max_epochs=config["training"]["epochs"],
+        callbacks=create_callbacks(config, exp_dir),
+        logger=TensorBoardLogger(
+            save_dir=exp_dir / "tensorboard",
+            name=None,
+            version=""
+        ),
+        gradient_clip_val=config["training"]["grad_clip"],
+        deterministic=True
+    )
+
+    return trainer
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="experiments/base_config.yaml",
-                        help="Path to config file")
-    parser.add_argument("--experiment-name", type=str,
-                        help="Name for this experiment")
-    parser.add_argument("--hyperopt", action="store_true",
-                        help="Run hyperparameter optimization")
-    parser.add_argument("--checkpoint", type=str,
-                        help="Path to checkpoint to resume from")
+    add_arguments(parser)
     args = parser.parse_args()
 
     # Load config
@@ -185,6 +230,7 @@ def main():
         results = train_with_hyperopt(
             config=config,
             datamodule=datamodule,
+            model_class=HealthcarePredictionModule,  # Pass the model class
             exp_dir=exp_dir
         )
 
@@ -205,18 +251,8 @@ def main():
             config=config
         )
 
-    # Setup trainer
-    trainer = Trainer(
-        max_epochs=config["training"]["epochs"],
-        callbacks=create_callbacks(config, exp_dir),
-        logger=TensorBoardLogger(
-            save_dir=exp_dir / "tensorboard",
-            name=None,
-            version=""
-        ),
-        gradient_clip_val=config["training"]["grad_clip"],
-        deterministic=True
-    )
+    # Setup trainer with hardware configuration
+    trainer = setup_trainer(config, exp_dir, args)
 
     # Train model
     trainer.fit(model, datamodule=datamodule)
