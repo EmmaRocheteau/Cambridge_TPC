@@ -1,6 +1,6 @@
-# created by virtualenv automatically
+.idea
 .venv
 data
-.idea
 logs
 checkpoints
+*__pycache__
