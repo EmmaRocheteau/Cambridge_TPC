@@ -1,0 +1,61 @@
+data:
+  data_dir: "data/"
+  train_file: "train.csv"
+  val_file: "val.csv"
+  test_file: "test.csv"
+
+model:
+  type: "TPC"  # Model type to instantiate
+  features: 64  # Number of features (F)
+  no_flat_features: 10  # Number of static features
+  num_layers: 3
+  dropout: 0.1
+  temp_dropout_rate: 0.1
+  kernel_size: 3
+  temp_kernels: [8, 8, 8]
+  point_sizes: [64, 64, 64]
+  momentum: 0.1
+  last_linear_size: 1  # Output dimension
+
+tasks:
+  los_prediction:
+    type: "regression"
+    loss_weight: 1.0
+    metrics: ["msle", "mse", "mae", "mape", "r2"]
+    regression_bins: [1, 2, 3, 4, 5, 6, 7, 8, 14]  # For binned accuracy
+
+  mortality:
+    type: "binary"
+    loss_weight: 1.0
+    metrics: ["auroc", "auprc", "accuracy", "balanced_accuracy"]
+
+  next_destination:
+    type: "multiclass"
+    num_classes: 5
+    loss_weight: 1.0
+    metrics: ["accuracy", "balanced_accuracy", "f1"]
+
+training:
+  seed: 42
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  early_stopping:
+    monitor: "val_total_loss"
+    patience: 10
+    mode: "min"
+  grad_clip: 1.0
+  optimizer:
+    type: "adam"
+    weight_decay: 0.01
+  scheduler:
+    type: "reduce_lr_on_plateau"
+    patience: 5
+    factor: 0.5
+    monitor: "val_total_loss"
+
+experiment:
+  name: null  # Will be set at runtime
+  results_dir: "experiments/results"
+  save_best: true
+  save_last: true
