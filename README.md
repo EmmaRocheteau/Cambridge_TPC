@@ -1,5 +1,5 @@
 # Healthcare Prediction System
-This repository contains a deep learning system for healthcare prediction tasks using temporal data. The system leverages the Temporal Pointwise Convolution (TPC) architecture to predict various healthcare outcomes including length of stay (LOS), mortality, and next patient destination.
+This repository contains a deep learning system for healthcare outcome prediction tasks using temporal data. The system leverages the Temporal Pointwise Convolution (TPC) architecture to predict various healthcare outcomes including length of stay (LOS), mortality, and next patient destination. We are applying this to the data in EPIC (the electronic health record system used in Cambridge University Hospitals NHS Trust).
 ## Project Structure
 ``` 
 .
@@ -30,8 +30,8 @@ This repository contains a deep learning system for healthcare prediction tasks 
 ### Installation
 1. Clone the repository:
 ``` bash
-   git clone <repository-url>
-   cd <repository-directory>
+   git clone https://github.com/EmmaRocheteau/Cambridge_TPC.git
+   cd Cambridge_TPC
 ```
 1. Create and activate a virtual environment:
 ``` bash

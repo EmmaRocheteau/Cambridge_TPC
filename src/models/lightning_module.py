@@ -162,6 +162,49 @@ class HealthcarePredictionModule(pl.LightningModule):
             }
         }
 
+    def optimize_for_inference(self, output_path: str = None, optimize_for_mobile: bool = False):
+        """
+        Export an optimized version of the TPC model for inference using JIT tracing.
+
+        Args:
+            output_path: Directory to save the optimized model (default: checkpoint directory).
+            optimize_for_mobile: Whether to apply additional optimizations for mobile deployment.
+
+        Returns:
+            Path to the optimized model file.
+        """
+        from src.utils.optimize_utils import optimize_model
+
+        # Use the current checkpoint path if available
+        checkpoint_path = None
+        if self.trainer and hasattr(self.trainer, 'checkpoint_callback'):
+            checkpoint_path = self.trainer.checkpoint_callback.best_model_path
+
+        if not checkpoint_path or not os.path.exists(checkpoint_path):
+            # Save a temporary checkpoint
+            temp_dir = os.path.join(output_path or ".", "temp_checkpoint")
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_path = os.path.join(temp_dir, "model.ckpt")
+            self.trainer.save_checkpoint(temp_path)
+            checkpoint_path = temp_path
+
+        # Optimize the model
+        optimized_path = optimize_model(
+            model_path=checkpoint_path,
+            output_dir=output_path,
+            optimize_for_mobile=optimize_for_mobile
+        )
+
+        # Clean up temporary checkpoint if created
+        if checkpoint_path.startswith(os.path.join(output_path or ".", "temp_checkpoint")):
+            os.remove(checkpoint_path)
+            try:
+                os.rmdir(os.path.dirname(checkpoint_path))
+            except OSError:
+                pass
+
+        return optimized_path
+
     def save_experiment(self, metrics: Dict[str, float]) -> None:
         """Save experiment results and configuration"""
         save_dir = os.path.join(

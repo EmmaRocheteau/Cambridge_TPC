@@ -12,16 +12,16 @@ hardware:
 
 model:
   type: "TPC"  # Model type to instantiate
-  features: 64  # Number of features (F)
-  no_flat_features: 10  # Number of static features
-  num_layers: 3
-  dropout: 0.1
-  temp_dropout_rate: 0.1
+  features: 128  # Number of features (F) for encoding
+  no_flat_features: 9  # Number of static features
+  num_layers: 6
+  dropout: 0.05
+  temp_dropout_rate: 0.02
   kernel_size: 3
-  temp_kernels: [8, 8, 8]
-  point_sizes: [64, 64, 64]
+  temp_kernels: [6, 6, 6, 6, 6, 6]
+  point_sizes: [14, 14, 14, 14, 14, 14]
   momentum: 0.1
-  last_linear_size: 1  # Output dimension
+  last_linear_size: 16  # Output dimension
 
 tasks:
   los_prediction:
@@ -44,8 +44,9 @@ tasks:
 training:
   seed: 42
   epochs: 100
-  batch_size: 32
-  learning_rate: 0.001
+  batch_size: 128  # Increased batch size
+  learning_rate: 0.0045  # Optimal learning rate
+  weight_decay: 0.00053  # L2 regularization
   early_stopping:
     monitor: "val_total_loss"
     patience: 10

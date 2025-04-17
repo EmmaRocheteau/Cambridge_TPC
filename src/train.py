@@ -170,6 +170,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--precision", type=int, choices=[16, 32],
                       help="Override config precision")
 
+    # Model optimization arguments
+    parser.add_argument("--optimize", action="store_true",
+                       help="Optimize the trained model for inference using JIT tracing")
+    parser.add_argument("--optimize-checkpoint", type=str,
+                       help="Path to checkpoint to optimize (if not provided, will use best checkpoint)")
+    parser.add_argument("--optimize-for-mobile", action="store_true",
+                       help="Apply additional optimizations for mobile deployment")
+    parser.add_argument("--verify-optimized", action="store_true",
+                       help="Verify that the optimized model produces the same outputs as the original")
+
 
 def setup_trainer(config: dict, exp_dir: Path, cli_args: argparse.Namespace) -> Trainer:
     """Setup trainer with hardware configuration"""
@@ -212,13 +222,47 @@ def main():
     config = load_config(args.config)
 
     # Set experiment name
-    config["experiment"]["name"] = args.experiment_name
+    if args.experiment_name:
+        config["experiment"]["name"] = args.experiment_name
 
     # Set random seed
     seed_everything(config["training"]["seed"])
 
     # Create experiment directory
     exp_dir = setup_experiment_dir(config)
+
+    # Optimization mode
+    if args.optimize:
+        from src.utils.optimize_utils import optimize_model, verify_optimized_model
+
+        checkpoint_path = args.optimize_checkpoint
+        if not checkpoint_path:
+            # Try to find the best checkpoint
+            print("No checkpoint specified, looking for best checkpoint...")
+            checkpoint_dir = Path(exp_dir) / "checkpoints"
+            checkpoints = list(checkpoint_dir.glob("*.ckpt"))
+            if not checkpoints:
+                print("Error: No checkpoints found in the experiment directory")
+                return
+
+            # Use the most recent checkpoint
+            checkpoint_path = str(max(checkpoints, key=os.path.getmtime))
+            print(f"Using checkpoint: {checkpoint_path}")
+
+        # Optimize the model
+        optimized_path = optimize_model(
+            model_path=checkpoint_path,
+            output_dir=str(exp_dir / "optimized")
+        )
+
+        # Verify if requested
+        if args.verify_optimized:
+            verify_optimized_model(
+                original_model_path=checkpoint_path,
+                optimized_model_path=optimized_path
+            )
+
+        return
 
     # Setup data
     datamodule = HealthcareDataModule(config["data"])
